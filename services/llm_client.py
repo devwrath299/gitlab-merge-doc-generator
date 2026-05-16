@@ -41,14 +41,13 @@ def call_llm(
     """
     client = get_llm_client()
 
-    logger.info(
-        "🤖 Calling LLM (model=%s, max_tokens=%d, temp=%.1f) ...",
-        LLM_MODEL, max_tokens, temperature,
-    )
-    logger.debug(
-        "System prompt length: %d chars, User prompt length: %d chars",
-        len(system_prompt), len(user_prompt),
-    )
+    logger.info("")
+    logger.info("  [🤖 LLM] Sending request")
+    logger.info("  [🤖 LLM]   Model      : %s", LLM_MODEL)
+    logger.info("  [🤖 LLM]   Max tokens : %d", max_tokens)
+    logger.info("  [🤖 LLM]   Temperature: %.2f", temperature)
+    logger.info("  [🤖 LLM]   System prompt: %d chars", len(system_prompt))
+    logger.info("  [🤖 LLM]   User prompt  : %d chars", len(user_prompt))
 
     try:
         response = client.chat.completions.create(
@@ -61,11 +60,11 @@ def call_llm(
             max_tokens=max_tokens,
         )
         result = response.choices[0].message.content
-        logger.info("✅ LLM response received (%d chars).", len(result))
+        logger.info("  [🤖 LLM] ✅ Response received: %d chars", len(result))
         return result
 
     except Exception as e:
-        logger.error("❌ LLM API error: %s", e)
+        logger.error("  [🤖 LLM] ❌ API error: %s", e)
         raise
 
 

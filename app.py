@@ -71,57 +71,72 @@ def run_docs_pipeline(
 
     Returns a result dict with status and MR URL.
     """
-    logger.info("=" * 60)
-    logger.info(
-        "🚀 Starting docs pipeline for %s MR !%s",
-        project_path, mr_iid,
-    )
-    logger.info("=" * 60)
+    logger.info("")
+    logger.info("═" * 60)
+    logger.info("🚀 PIPELINE START")
+    logger.info("   Project  : %s", project_path)
+    logger.info("   MR       : !%s", mr_iid)
+    logger.info("   Files    : %d changed", len(changes))
+    logger.info("   MR Title : %s", mr_details.get("title", "N/A"))
+    logger.info("   Author   : %s", mr_details.get("author", {}).get("name", "Unknown"))
+    logger.info("═" * 60)
 
-    # ── Step 1: Clone or Pull ──
+    # ── Step 1: Clone or Pull ──────────────────────────────────
+    logger.info("")
+    logger.info("[STEP 1/5] 📥 Clone / Pull Repository")
     clone_url = get_project_clone_url(project_path)
     local_path = get_local_repo_path(project_path)
+    logger.info("  Local path : %s", local_path)
 
     try:
         repo = clone_or_pull(clone_url, local_path)
+        logger.info("  ✅ Repo ready at %s", local_path)
     except Exception as e:
-        logger.error("❌ Clone/pull failed: %s", e)
+        logger.error("  ❌ Clone/pull failed: %s", e)
         return {"status": "error", "reason": f"Clone/pull failed: {e}"}
 
-    # ── Step 2: Checkout development branch ──
+    # ── Step 2: Checkout development branch ───────────────────
+    logger.info("")
+    logger.info("[STEP 2/5] 🌿 Checkout Development Branch")
     try:
         dev_branch = checkout_development_branch(repo)
+        logger.info("  ✅ On branch: %s", dev_branch)
     except Exception as e:
-        logger.error("❌ Branch checkout failed: %s", e)
+        logger.error("  ❌ Branch checkout failed: %s", e)
         return {"status": "error", "reason": f"Branch checkout failed: {e}"}
 
-    # ── Step 3: Create feature branch ──
+    # ── Step 3: Create feature branch ─────────────────────────
+    logger.info("")
+    logger.info("[STEP 3/5] 🔀 Create Feature Branch")
     try:
         feature_branch = create_feature_branch(repo, mr_iid)
+        logger.info("  ✅ Feature branch: %s", feature_branch)
     except Exception as e:
-        logger.error("❌ Feature branch creation failed: %s", e)
+        logger.error("  ❌ Feature branch creation failed: %s", e)
         return {"status": "error", "reason": f"Feature branch failed: {e}"}
 
-    # ── Step 4: Generate or update docs ──
+    # ── Step 4: Generate or update docs ───────────────────────
+    logger.info("")
+    logger.info("[STEP 4/5] 📝 Generate / Update Documentation")
     try:
         if has_docs_folder(local_path):
-            # Docs exist → incremental update based on MR diff
-            logger.info("📝 Docs exist — running incremental update...")
+            logger.info("  Mode: INCREMENTAL UPDATE (docs/ folder exists)")
             diff_text = format_diff_for_llm(changes)
+            logger.info("  Diff size: %d chars across %d files", len(diff_text), len(changes))
 
-            # Truncate if too large
             max_chars = 50000
             if len(diff_text) > max_chars:
                 diff_text = diff_text[:max_chars] + "\n\n... (diff truncated)"
-                logger.warning("Diff truncated to %d chars", max_chars)
+                logger.warning("  ⚠️  Diff truncated to %d chars", max_chars)
 
             changed_files = update_docs_from_diff(local_path, diff_text, mr_details)
         else:
-            # No docs → full generation from scratch
-            logger.info("📚 No docs/ folder — generating full documentation...")
+            logger.info("  Mode: FULL GENERATION (no docs/ folder found)")
             changed_files = generate_full_docs(local_path)
+
+        logger.info("  ✅ Documentation step done. %d file(s) modified.", len(changed_files))
     except Exception as e:
-        logger.error("❌ Documentation generation/update failed: %s", e)
+        logger.error("  ❌ Documentation generation/update failed: %s", e)
         return {"status": "error", "reason": f"Doc generation failed: {e}"}
 
     if not changed_files:
@@ -131,7 +146,9 @@ def run_docs_pipeline(
             "reason": "No documentation changes needed for this MR",
         }
 
-    # ── Step 5: Commit, push, and create MR ──
+    # ── Step 5: Commit, push, and create MR ───────────────────
+    logger.info("")
+    logger.info("[STEP 5/5] 🚀 Commit, Push & Create MR")
     try:
         mr_author = mr_details.get("author", {}).get("name", "Unknown")
         mr_title = mr_details.get("title", "N/A")
@@ -175,11 +192,40 @@ def run_docs_pipeline(
 @app.route("/", methods=["POST"])
 def webhook():
     """Handle incoming GitLab webhook events."""
+    # ── Full request dump ──────────────────────────────────────
+    logger.info("")
+    logger.info("━" * 60)
+    logger.info("📩 INCOMING WEBHOOK REQUEST")
+    logger.info("━" * 60)
+    logger.info("Method  : %s", request.method)
+    logger.info("URL     : %s", request.url)
+    logger.info("Remote  : %s", request.remote_addr)
+    logger.info("--- Headers ---")
+    for key, value in request.headers:
+        logger.info("  %s: %s", key, value)
+    logger.info("--- Raw Body (first 2000 chars) ---")
+    raw = request.get_data(as_text=True)
+    logger.info("%s", raw[:2000])
+    logger.info("━" * 60)
+    # ───────────────────────────────────────────────────────────
+
     payload = request.get_json(silent=True)
     if not payload:
+        logger.warning("⚠️  Could not parse JSON from request body.")
         return jsonify({"error": "No JSON payload received"}), 400
 
-    object_kind = payload.get("object_kind", "")
+    object_kind = payload.get("object_kind") or ""
+
+    if not object_kind:
+        # GitLab sends test pings or system hooks without object_kind
+        top_keys = list(payload.keys())
+        logger.info(
+            "Received payload with no 'object_kind'. Top-level keys: %s", top_keys
+        )
+        # Fall back to push handling if commits are present
+        if payload.get("commits"):
+            return handle_push_event(payload)
+        return jsonify({"status": "ignored", "reason": "No object_kind in payload"}), 200
 
     if object_kind == "push":
         return handle_push_event(payload)
@@ -189,8 +235,8 @@ def webhook():
         commits = payload.get("commits", [])
         if commits:
             return handle_push_event(payload)
-        logger.info("Ignoring event of kind: %s", object_kind)
-        return jsonify({"status": "ignored", "reason": f"Unhandled event: {object_kind}"}), 200
+        logger.info("Ignoring event of kind: '%s'", object_kind)
+        return jsonify({"status": "ignored", "reason": f"Unhandled event kind: {object_kind}"}), 200
 
 
 def handle_push_event(payload: dict):

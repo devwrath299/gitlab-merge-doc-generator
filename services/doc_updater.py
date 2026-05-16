@@ -27,14 +27,23 @@ def update_docs_from_diff(
 
     Returns a list of updated/created doc file paths (relative to repo root).
     """
-    logger.info("🔄 Starting incremental documentation update...")
+    logger.info("")
+    logger.info("  [DocUpdater] 🔄 Starting incremental documentation update")
+    logger.info("  [DocUpdater]   repo_path : %s", repo_path)
+    logger.info("  [DocUpdater]   MR title  : %s", mr_details.get("title", "N/A"))
+    logger.info("  [DocUpdater]   MR branch : %s → %s",
+                mr_details.get("source_branch", "?"), mr_details.get("target_branch", "?"))
 
     # 1. Load the docs-update skill
+    logger.info("  [DocUpdater] Loading docs-update skill...")
     system_prompt = load_skill(DOCS_UPDATE_SKILL)
+    logger.info("  [DocUpdater] Skill loaded (%d chars)", len(system_prompt))
 
     # 2. Read the existing docs structure
+    logger.info("  [DocUpdater] Reading existing docs/ structure...")
     docs_dir = os.path.join(repo_path, "docs")
     existing_docs = _read_existing_docs(docs_dir)
+    logger.info("  [DocUpdater] Existing docs summary: %d chars", len(existing_docs))
 
     # 3. Build the user prompt
     mr_title = mr_details.get("title", "N/A")
@@ -70,14 +79,18 @@ Return ONLY the JSON array, no other text. If no documentation updates are neede
 return an empty array: []
 """
 
+    logger.info("  [DocUpdater] User prompt built (%d chars) — calling LLM...", len(user_prompt))
+
     # 4. Call LLM
     llm_response = call_llm(system_prompt, user_prompt, max_tokens=16000)
+    logger.info("  [DocUpdater] LLM response: %d chars", len(llm_response))
 
     # 5. Parse and apply updates
+    logger.info("  [DocUpdater] Applying doc updates...")
     updated_files = _apply_doc_updates(repo_path, llm_response)
 
     logger.info(
-        "✅ Incremental update complete. %d files modified.",
+        "  [DocUpdater] ✅ Incremental update complete. %d file(s) modified.",
         len(updated_files),
     )
     return updated_files

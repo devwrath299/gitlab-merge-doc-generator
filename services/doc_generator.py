@@ -37,38 +37,36 @@ def generate_full_docs(repo_path: str) -> list[str]:
     Generate complete documentation for a repository from scratch.
     Returns a list of created doc file paths (relative to repo root).
     """
-    logger.info("📚 Starting full documentation generation for %s", repo_path)
+    logger.info("")
+    logger.info("  [DocGenerator] 📚 Starting FULL documentation generation")
+    logger.info("  [DocGenerator]   repo_path : %s", repo_path)
 
+    logger.info("  [DocGenerator] Loading codebase-docs skill...")
     system_prompt = load_skill(CODEBASE_DOCS_SKILL)
+    logger.info("  [DocGenerator] Skill loaded (%d chars)", len(system_prompt))
+
+    logger.info("  [DocGenerator] Building repo context (reading source files)...")
     repo_context = _build_repo_context(repo_path)
+    file_tree = get_repo_file_tree(repo_path)
+    logger.info("  [DocGenerator] Repo context: %d chars | File tree: %d lines",
+                len(repo_context), file_tree.count('\n') + 1)
 
-    user_prompt = f"""Analyze the following repository and generate comprehensive documentation.
+    user_prompt = (
+        "Analyze the following repository and generate comprehensive documentation.\n\n"
+        "## Repository File Tree\n```\n" + file_tree + "\n```\n\n"
+        "## Key Source Files\n\n" + repo_context + "\n\n---\n\n"
+        "Generate the complete documentation following the structure defined in your instructions.\n"
+        "For each documentation file, output it in this exact format:\n\n"
+        "=== FILE: docs/<path>/<filename>.md ===\n<file content>\n=== END FILE ===\n\n"
+        "Generate ALL documentation files as specified in the folder structure."
+    )
 
-## Repository File Tree
-```
-{get_repo_file_tree(repo_path)}
-```
-
-## Key Source Files
-
-{repo_context}
-
----
-
-Generate the complete documentation following the structure defined in your instructions.
-For each documentation file, output it in this exact format:
-
-=== FILE: docs/<path>/<filename>.md ===
-<file content>
-=== END FILE ===
-
-Generate ALL documentation files as specified in the folder structure.
-"""
-
+    logger.info("  [DocGenerator] User prompt built (%d chars) — calling LLM...", len(user_prompt))
     llm_response = call_llm(system_prompt, user_prompt, max_tokens=16000)
+    logger.info("  [DocGenerator] LLM response: %d chars — parsing files...", len(llm_response))
     created_files = _parse_and_write_docs(repo_path, llm_response)
+    logger.info("  [DocGenerator] Parsed %d file(s) from first LLM pass", len(created_files))
 
-    # Check for missing sections and generate them
     expected_sections = [
         "01_overview", "02_architecture", "03_repository_guide",
         "04_configuration", "05_api_documentation", "06_data_layer",
@@ -83,13 +81,15 @@ Generate ALL documentation files as specified in the folder structure.
             created_dirs.add(parts[1])
 
     missing = [s for s in expected_sections if s not in created_dirs]
-
     if missing:
-        logger.info("📝 Generating additional sections: %s", ", ".join(missing))
+        logger.info("  [DocGenerator] Missing sections: %s — generating...", ", ".join(missing))
         additional = _generate_missing_sections(repo_path, system_prompt, repo_context, missing)
         created_files.extend(additional)
+        logger.info("  [DocGenerator] Additional %d file(s) generated", len(additional))
+    else:
+        logger.info("  [DocGenerator] All expected sections present.")
 
-    logger.info("✅ Full doc generation complete. %d files created.", len(created_files))
+    logger.info("  [DocGenerator] ✅ Full generation complete. %d total file(s).", len(created_files))
     return created_files
 
 

@@ -28,9 +28,13 @@ def get_project_id(project_path: str) -> int | None:
     """Get GitLab project ID from its path (e.g. 'indiamart/soa/pdp_go')."""
     encoded_path = quote(project_path, safe="")
     url = f"{GITLAB_BASE}/api/v4/projects/{encoded_path}"
+    logger.info("  [API] GET project ID  → %s", url)
     resp = requests.get(url, headers=GITLAB_HEADERS, timeout=30, verify=False)
+    logger.info("  [API] Response: status=%d, size=%d bytes", resp.status_code, len(resp.content))
     if resp.status_code == 200:
-        return resp.json().get("id")
+        pid = resp.json().get("id")
+        logger.info("  [API] Resolved project_id=%s", pid)
+        return pid
     logger.error(
         "Failed to get project ID for %s: %s %s",
         project_path, resp.status_code, resp.text,
@@ -72,9 +76,19 @@ def extract_mr_info_from_commit_message(commit_message: str):
 def get_mr_details(project_id: int, mr_iid: int) -> dict | None:
     """Fetch the merge request metadata."""
     url = f"{GITLAB_BASE}/api/v4/projects/{project_id}/merge_requests/{mr_iid}"
+    logger.info("  [API] GET MR details  → %s", url)
     resp = requests.get(url, headers=GITLAB_HEADERS, timeout=30, verify=False)
+    logger.info("  [API] Response: status=%d, size=%d bytes", resp.status_code, len(resp.content))
     if resp.status_code == 200:
-        return resp.json()
+        data = resp.json()
+        logger.info(
+            "  [API] MR !%s: title='%s' state='%s' author='%s'",
+            mr_iid,
+            data.get("title", ""),
+            data.get("state", ""),
+            data.get("author", {}).get("name", ""),
+        )
+        return data
     logger.error(
         "Failed to get MR details for project=%s MR=!%s: %s %s",
         project_id, mr_iid, resp.status_code, resp.text,
@@ -85,9 +99,13 @@ def get_mr_details(project_id: int, mr_iid: int) -> dict | None:
 def get_mr_changes(project_id: int, mr_iid: int) -> dict | None:
     """Fetch the merge request details + changes (diff) from GitLab API."""
     url = f"{GITLAB_BASE}/api/v4/projects/{project_id}/merge_requests/{mr_iid}/changes"
+    logger.info("  [API] GET MR changes  → %s", url)
     resp = requests.get(url, headers=GITLAB_HEADERS, timeout=60, verify=False)
+    logger.info("  [API] Response: status=%d, size=%d bytes", resp.status_code, len(resp.content))
     if resp.status_code == 200:
-        return resp.json()
+        data = resp.json()
+        logger.info("  [API] %d file(s) changed in MR !%s", len(data.get("changes", [])), mr_iid)
+        return data
     logger.error(
         "Failed to get MR changes for project=%s MR=!%s: %s %s",
         project_id, mr_iid, resp.status_code, resp.text,
@@ -145,9 +163,12 @@ def create_merge_request(
         "labels": "documentation,automated",
         "remove_source_branch": True,
     }
+    logger.info("  [API] POST create MR  → %s", url)
+    logger.info("  [API] Payload: source='%s' target='%s' title='%s'", source_branch, target_branch, title)
     resp = requests.post(
         url, headers=GITLAB_HEADERS, json=payload, timeout=30, verify=False
     )
+    logger.info("  [API] Response: status=%d, size=%d bytes", resp.status_code, len(resp.content))
 
     if resp.status_code == 201:
         mr_data = resp.json()
